@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>書籍調査プロンプト生成ツール</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    font-family:'Segoe UI','Yu Gothic','Hiragino Sans',sans-serif;
+    background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+    min-height:100vh; padding:20px;
+}
+.wrap { max-width:900px; margin:0 auto; }
+.container {
+    background:white; border-radius:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.3);
+    padding:40px; margin-bottom:20px;
+}
+h1 { color:#333; margin-bottom:10px; font-size:24px; text-align:center; }
+.subtitle { text-align:center; color:#666; margin-bottom:26px; font-size:13px; }
+h2 { color:#444; font-size:17px; margin-bottom:14px; border-left:4px solid #667eea; padding-left:10px; }
+.input-section { margin-bottom:16px; }
+.input-row { display:flex; gap:12px; }
+.input-row .input-section { flex:1; }
+label { display:block; margin-bottom:6px; color:#555; font-weight:600; font-size:13px; }
+.required { color:#e74c3c; font-size:11px; margin-left:4px; }
+.optional { color:#999; font-size:11px; font-weight:400; margin-left:4px; }
+input[type="text"], select, textarea {
+    width:100%; padding:12px; border:2px solid #e0e0e0; border-radius:8px;
+    font-size:15px; font-family:inherit; background:white;
+}
+input[type="text"]:focus, select:focus, textarea:focus {
+    outline:none; border-color:#667eea; box-shadow:0 0 0 3px rgba(102,126,234,0.1);
+}
+textarea { resize:vertical; min-height:70px; line-height:1.5; }
+.hint { font-size:11px; color:#888; margin-top:5px; }
+.btn {
+    padding:12px 20px; border:none; border-radius:8px; font-size:15px;
+    font-weight:600; cursor:pointer; transition:all .2s ease;
+}
+.btn-primary {
+    background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:white; width:100%;
+}
+.btn-primary:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(102,126,234,.4); }
+.btn-outline { background:white; color:#667eea; border:2px solid #667eea; }
+.btn-outline:hover { background:#667eea; color:white; }
+.btn-small { padding:6px 12px; font-size:12px; }
+.btn-danger { background:white; color:#e74c3c; border:2px solid #e74c3c; }
+.btn-danger:hover { background:#e74c3c; color:white; }
+.results { display:none; margin-top:24px; }
+.results.active { display:block; }
+.prompt-card {
+    background:#f8f9fa; border-left:4px solid #667eea; border-radius:8px;
+    padding:18px; margin-bottom:16px; position:relative;
+}
+.prompt-number { display:inline-block; background:#667eea; color:white; padding:4px 12px;
+    border-radius:12px; font-size:12px; font-weight:600; margin-bottom:10px; }
+.prompt-text { background:white; padding:14px; border-radius:6px; border:1px solid #e0e0e0;
+    font-size:14px; line-height:1.7; color:#333; white-space:pre-wrap; }
+.copy-btn { position:absolute; top:18px; right:18px; padding:7px 14px; background:white;
+    color:#667eea; border:2px solid #667eea; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; }
+.copy-btn:hover { background:#667eea; color:white; }
+.copy-btn.copied { background:#4caf50; color:white; border-color:#4caf50; }
+.action-row { display:flex; gap:10px; margin-top:16px; }
+.action-row .btn { flex:1; }
+
+/* 履歴セクション */
+.history-controls { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+.history-controls input[type="text"] { flex:2; min-width:150px; }
+.history-controls select { flex:1; min-width:120px; }
+.history-item {
+    border:1px solid #e0e0e0; border-radius:10px; padding:16px; margin-bottom:12px;
+    background:#fafafa;
+}
+.history-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; cursor:pointer; }
+.history-title { font-weight:700; color:#333; font-size:15px; }
+.history-meta { font-size:12px; color:#888; margin-top:4px; }
+.status-badge {
+    display:inline-block; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:700;
+    white-space:nowrap;
+}
+.status-未調査 { background:#eee; color:#666; }
+.status-調査済み { background:#dbeafe; color:#1d4ed8; }
+.status-読みたい { background:#fef3c7; color:#b45309; }
+.status-読了 { background:#dcfce7; color:#15803d; }
+.status-保留 { background:#f3e8ff; color:#7e22ce; }
+.history-body { display:none; margin-top:14px; }
+.history-body.open { display:block; }
+.history-body .prompt-card { margin-bottom:12px; padding:14px; }
+.history-body label { margin-top:10px; }
+.history-controls-row { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; align-items:center; }
+.empty-msg { text-align:center; color:#999; font-size:14px; padding:20px 0; }
+
+.sync-status {
+    display:inline-block; font-size:11px; padding:4px 10px; border-radius:10px; margin-left:8px;
+    background:#dcfce7; color:#15803d;
+}
+.sync-status.offline { background:#fee2e2; color:#b91c1c; }
+.sync-status.connecting { background:#fef3c7; color:#b45309; }
+
+.toast {
+    position:fixed; bottom:30px; left:50%; transform:translateX(-50%);
+    background:#333; color:white; padding:12px 24px; border-radius:8px; font-size:14px;
+    opacity:0; transition:opacity .3s ease; pointer-events:none; z-index:1000;
+    max-width:90%; text-align:center;
+}
+.toast.show { opacity:1; }
+
+@media (max-width:600px) {
+    .container { padding:22px; }
+    .input-row, .history-controls, .action-row { flex-direction:column; }
+    .copy-btn { position:static; display:block; width:100%; margin-top:10px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="container">
+    <h1>📚 書籍調査プロンプト生成ツール</h1>
+    <p class="subtitle">要点確認・前調べ・読んだ本の思い出しのための調査プロンプト生成＋履歴管理</p>
+
+    <div class="input-section">
+        <label for="bookTitle">書籍タイトル<span class="required">必須</span></label>
+        <input type="text" id="bookTitle" placeholder="例：7つの習慣" autofocus>
+    </div>
+
+    <div class="input-section">
+        <label for="purpose">今回の目的</label>
+        <select id="purpose">
+            <option value="pre">前調べ（読む価値があるか判断したい）</option>
+            <option value="summary">要点確認（読む前に基礎知識を得たい）</option>
+            <option value="recall">思い出し（読んだ内容を振り返りたい）</option>
+        </select>
+        <p class="hint">目的によって①②の内容が変わります</p>
+    </div>
+
+    <div class="input-row">
+        <div class="input-section">
+            <label for="authorName">著者名<span class="optional">任意</span></label>
+            <input type="text" id="authorName" placeholder="例：スティーブン・R・コヴィー">
+            <p class="hint">同名の別書籍と混同されるのを防ぎます</p>
+        </div>
+        <div class="input-section">
+            <label for="genre">ジャンル</label>
+            <select id="genre">
+                <option value="business">ビジネス・自己啓発・実用書</option>
+                <option value="specialized">専門書・学術書</option>
+                <option value="novel">小説・物語</option>
+                <option value="other">その他・分類不明</option>
+            </select>
+        </div>
+    </div>
+
+    <button class="btn btn-primary" onclick="generatePrompts()">プロンプトを生成</button>
+
+    <div class="results" id="results">
+        <div class="prompt-card">
+            <span class="prompt-number" id="label1">プロンプト ①</span>
+            <button class="copy-btn" onclick="copyPrompt(1)">コピー</button>
+            <div class="prompt-text" id="prompt1"></div>
+        </div>
+        <div class="prompt-card">
+            <span class="prompt-number" id="label2">プロンプト ②</span>
+            <button class="copy-btn" onclick="copyPrompt(2)">コピー</button>
+            <div class="prompt-text" id="prompt2"></div>
+        </div>
+        <div class="prompt-card">
+            <span class="prompt-number">プロンプト ③：応用・背景（ジャンル別）</span>
+            <button class="copy-btn" onclick="copyPrompt(3)">コピー</button>
+            <div class="prompt-text" id="prompt3"></div>
+        </div>
+        <div class="action-row">
+            <button class="btn btn-outline" onclick="copyAllPrompts()">📋 まとめてコピー</button>
+            <button class="btn btn-outline" onclick="saveToHistory()">💾 履歴に保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <h2>📖 履歴（調べた本一覧）<span class="sync-status connecting" id="syncStatus">接続中…</span></h2>
+    <div class="history-controls">
+        <input type="text" id="searchBox" placeholder="タイトル・著者で検索" oninput="renderHistory()">
+        <select id="statusFilter" onchange="renderHistory()">
+            <option value="">すべてのステータス</option>
+            <option value="未調査">未調査</option>
+            <option value="調査済み">調査済み</option>
+            <option value="読みたい">読みたい</option>
+            <option value="読了">読了</option>
+            <option value="保留">保留</option>
+        </select>
+        <button class="btn btn-outline btn-small" onclick="exportHistory()">⬇ エクスポート</button>
+        <button class="btn btn-outline btn-small" onclick="document.getElementById('importFile').click()">⬆ インポート</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importHistory(event)">
+    </div>
+    <div id="historyList"></div>
+</div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ==== Supabase設定 ====
+const SUPABASE_URL = 'https://edfrjxjdzxutcjeayfac.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_GVtanlT_gDwSEQSsZPC_NQ_nEK-60x2';
+const TABLE_NAME = 'book_research';
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const LOCAL_CACHE_KEY = 'bookPromptHistory_cache_v1';
+
+function setSyncStatus(state) {
+    const el = document.getElementById('syncStatus');
+    el.classList.remove('offline', 'connecting');
+    if (state === 'online') { el.textContent = '同期済み'; }
+    else if (state === 'offline') { el.textContent = 'オフライン'; el.classList.add('offline'); }
+    else { el.textContent = '接続中…'; el.classList.add('connecting'); }
+}
+
+document.getElementById('bookTitle').addEventListener('keypress', function(e){
+    if (e.key === 'Enter') generatePrompts();
+});
+
+const genreTemplates = {
+    business: (ref) => `書籍${ref}の内容を実務やキャリアに応用した具体的な実践事例・失敗談・実践者のレポートを調査して。あわせて、著者の経歴や本書執筆の背景・問題意識も簡潔にまとめて。出力形式：①実践事例（3件以上、成功/失敗を含む）②著者の背景・執筆意図（150字程度）。`,
+    specialized: (ref) => `書籍${ref}が学術的・専門的にどう位置づけられているかを調査して。関連する先行研究・後続研究との関係、学会や専門家からの評価、批判されている点を整理して。出力形式：見出し＋箇条書きで、先行研究との関係／評価／批判点を分けて。`,
+    novel: (ref) => `書籍${ref}のテーマ・モチーフ・象徴表現について、文学的な解釈や評論を調査して。作者の他作品や執筆背景との関連、読者・批評家による代表的な解釈の違いも含めて。出力形式：テーマ分析／執筆背景／解釈の対立点、の3セクションで簡潔に。`,
+    other: (ref) => `書籍${ref}が実際にどのように読まれ、活用されているか（読者の反応、引用のされ方、社会的な影響など）を調査して。著者の背景や執筆の経緯も含めて。出力形式：見出し＋箇条書きで簡潔にまとめて。`
+};
+
+// 目的別：プロンプト①②のテンプレート（③はジャンル別のまま共通）
+const purposeTemplates = {
+    pre: {
+        label1: 'プロンプト ①：全体像の把握（概要）',
+        label2: 'プロンプト ②：読む価値の判断材料',
+        prompt1: (ref) => `書籍${ref}の全体像を素早く把握したい。核心的な主張・全体構成（章立て）・キーコンセプトを、詳細説明は省いて要点のみ3〜5個、見出し＋箇条書きで簡潔に抽出して。`,
+        prompt2: (ref) => `書籍${ref}が「読む価値があるか」を判断するための材料を調査して。①想定される対象読者層 ②類似テーマの本との違い・独自性 ③読了にかかる時間や労力に対して得られる価値（実践的か抽象的か、既存の類書と内容が重複していないか）を整理して。出力形式：①対象読者 ②類書との違い ③投資対効果、の3セクション。`
+    },
+    summary: {
+        label1: 'プロンプト ①：核心的主張・構成の抽出',
+        label2: 'プロンプト ②：重要キーワード・キーコンセプト解説',
+        prompt1: (ref) => `書籍${ref}の核心的な主張・全体構成（章立て）・キーコンセプトを構造的に抽出して。各章またはパートごとに、要点を3〜5個、根拠となる具体例やデータとともに整理して。推測や一般論ではなく、実際の書籍内容に基づいて調査し、不確かな情報は「未確認」と明記して。出力形式：見出し（章・パート単位）＋箇条書き。`,
+        prompt2: (ref) => `書籍${ref}で使われている重要なキーワード・キーコンセプト・専門用語を抽出し、それぞれを簡潔に解説して。読む前に知っておくと理解がスムーズになる前提知識も含めて。出力形式：用語＋1〜2文の解説、を箇条書きで。`
+    },
+    recall: {
+        label1: 'プロンプト ①：章立て要点の再構成',
+        label2: 'プロンプト ②：論争点・批判的評価（読後の再評価用）',
+        prompt1: (ref) => `書籍${ref}の内容を、読了後に思い出しやすい形で再構成して。章またはパートごとの要点を3〜5個ずつ、実際の記述に基づいて整理して。出力形式：見出し（章・パート単位）＋箇条書き。`,
+        prompt2: (ref) => `書籍${ref}に対する書評・専門家の評価・批判的な意見を、賛否両方の立場から調査して。特に「どの主張が支持されているか」「どの部分が批判・反証されているか」を対比できる形で整理して。出力形式：①肯定的評価 ②否定的・批判的評価 ③論争になっている論点、の3セクション。`
+    }
+};
+
+let currentGenerated = null;
+
+function generatePrompts() {
+    const title = document.getElementById('bookTitle').value.trim();
+    const author = document.getElementById('authorName').value.trim();
+    const genre = document.getElementById('genre').value;
+    const purpose = document.getElementById('purpose').value;
+
+    if (!title) {
+        showToast('⚠️ 書籍タイトルを入力してください');
+        document.getElementById('bookTitle').focus();
+        return;
+    }
+
+    const ref = author ? `『${title}』（著者：${author}）` : `『${title}』`;
+    const pt = purposeTemplates[purpose];
+
+    const prompt1 = pt.prompt1(ref);
+    const prompt2 = pt.prompt2(ref);
+    const prompt3 = genreTemplates[genre](ref);
+
+    document.getElementById('label1').textContent = pt.label1;
+    document.getElementById('label2').textContent = pt.label2;
+    document.getElementById('prompt1').textContent = prompt1;
+    document.getElementById('prompt2').textContent = prompt2;
+    document.getElementById('prompt3').textContent = prompt3;
+    document.getElementById('results').classList.add('active');
+
+    currentGenerated = { title, author, genre, purpose, prompts: [prompt1, prompt2, prompt3] };
+
+    setTimeout(() => {
+        document.getElementById('results').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }, 100);
+    showToast('✅ プロンプトを生成しました！');
+}
+
+function copyPrompt(number) {
+    const text = document.getElementById(`prompt${number}`).textContent;
+    copyToClipboard(text);
+    const btn = event.target;
+    const original = btn.textContent;
+    btn.textContent = 'コピー完了！';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 2000);
+    showToast(`📋 プロンプト ${number} をコピーしました`);
+}
+
+function copyAllPrompts() {
+    const p1 = document.getElementById('prompt1').textContent;
+    const p2 = document.getElementById('prompt2').textContent;
+    const p3 = document.getElementById('prompt3').textContent;
+    copyToClipboard(`① ${p1}\n\n② ${p2}\n\n③ ${p3}`);
+    showToast('📋 3つのプロンプトをまとめてコピーしました');
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+    }
+}
+
+/* ---------- 履歴管理（Supabase直結・全端末共有） ---------- */
+
+let historyListCache = [];
+
+function readCache() {
+    try { return JSON.parse(localStorage.getItem(LOCAL_CACHE_KEY)) || []; }
+    catch(e) { return []; }
+}
+
+function writeCache(list) {
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(list));
+}
+
+async function fetchHistoryFromSupabase() {
+    const { data, error } = await supabaseClient
+        .from(TABLE_NAME)
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        setSyncStatus('offline');
+        return readCache();
+    }
+
+    setSyncStatus('online');
+    const list = data.map(row => ({
+        id: row.id,
+        title: row.title,
+        author: row.author,
+        genre: row.genre,
+        purpose: row.purpose,
+        prompts: row.prompts,
+        notes: row.notes,
+        status: row.status,
+        createdAt: row.created_at
+    }));
+    writeCache(list);
+    return list;
+}
+
+async function saveToHistory() {
+    if (!currentGenerated) {
+        showToast('⚠️ 先にプロンプトを生成してください');
+        return;
+    }
+    const { error } = await supabaseClient
+        .from(TABLE_NAME)
+        .insert({
+            title: currentGenerated.title,
+            author: currentGenerated.author,
+            genre: currentGenerated.genre,
+            purpose: currentGenerated.purpose,
+            prompts: currentGenerated.prompts,
+            notes: '',
+            status: '調査済み'
+        });
+
+    if (error) {
+        showToast('⚠️ 保存に失敗しました（オフラインの可能性）');
+        return;
+    }
+    await renderHistory();
+    showToast('💾 履歴に保存しました');
+}
+
+function genreLabel(g) {
+    return {business:'ビジネス/実用書', specialized:'専門書/学術書', novel:'小説', other:'その他'}[g] || g;
+}
+
+function purposeLabel(p) {
+    return {pre:'前調べ', summary:'要点確認', recall:'思い出し'}[p] || '';
+}
+
+async function renderHistory() {
+    historyListCache = await fetchHistoryFromSupabase();
+    const search = document.getElementById('searchBox').value.trim().toLowerCase();
+    const statusFilter = document.getElementById('statusFilter').value;
+
+    const filtered = historyListCache.filter(item => {
+        const matchSearch = !search ||
+            item.title.toLowerCase().includes(search) ||
+            (item.author && item.author.toLowerCase().includes(search));
+        const matchStatus = !statusFilter || item.status === statusFilter;
+        return matchSearch && matchStatus;
+    });
+
+    const container = document.getElementById('historyList');
+    if (filtered.length === 0) {
+        container.innerHTML = '<p class="empty-msg">まだ履歴がありません。プロンプトを生成して「履歴に保存」してみてください。</p>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(item => {
+        const date = new Date(item.createdAt).toLocaleDateString('ja-JP');
+        return `
+        <div class="history-item">
+            <div class="history-head" onclick="toggleHistoryItem('${item.id}')">
+                <div>
+                    <div class="history-title">${escapeHtml(item.title)}${item.author ? ' / ' + escapeHtml(item.author) : ''}</div>
+                    <div class="history-meta">${purposeLabel(item.purpose)}・${genreLabel(item.genre)}・${date}</div>
+                </div>
+                <span class="status-badge status-${item.status}">${item.status}</span>
+            </div>
+            <div class="history-body" id="body-${item.id}">
+                ${item.prompts.map((p,i) => `
+                    <div class="prompt-card">
+                        <span class="prompt-number">プロンプト ${i+1}</span>
+                        <div class="prompt-text">${escapeHtml(p)}</div>
+                    </div>
+                `).join('')}
+                <label>調査結果メモ（他のAIの回答や自分の要約を貼り付け）</label>
+                <textarea id="notes-${item.id}" onblur="updateNotes('${item.id}', this.value)">${escapeHtml(item.notes || '')}</textarea>
+                <div class="history-controls-row">
+                    <label style="margin:0;">ステータス：</label>
+                    <select onchange="updateStatus('${item.id}', this.value)">
+                        ${['未調査','調査済み','読みたい','読了','保留'].map(s =>
+                            `<option value="${s}" ${s===item.status?'selected':''}>${s}</option>`).join('')}
+                    </select>
+                    <button class="btn btn-danger btn-small" onclick="deleteHistory('${item.id}')">削除</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function toggleHistoryItem(id) {
+    const body = document.getElementById(`body-${id}`);
+    body.classList.toggle('open');
+}
+
+async function updateNotes(id, value) {
+    const { error } = await supabaseClient
+        .from(TABLE_NAME)
+        .update({ notes: value })
+        .eq('id', id);
+    if (error) {
+        showToast('⚠️ メモの保存に失敗しました');
+        return;
+    }
+    showToast('💾 メモを保存しました');
+}
+
+async function updateStatus(id, value) {
+    const { error } = await supabaseClient
+        .from(TABLE_NAME)
+        .update({ status: value })
+        .eq('id', id);
+    if (error) {
+        showToast('⚠️ ステータスの更新に失敗しました');
+        return;
+    }
+    await renderHistory();
+}
+
+async function deleteHistory(id) {
+    if (!confirm('この履歴を削除しますか？')) return;
+    const { error } = await supabaseClient
+        .from(TABLE_NAME)
+        .delete()
+        .eq('id', id);
+    if (error) {
+        showToast('⚠️ 削除に失敗しました');
+        return;
+    }
+    await renderHistory();
+    showToast('🗑 履歴を削除しました');
+}
+
+function exportHistory() {
+    const list = historyListCache;
+    const blob = new Blob([JSON.stringify(list, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `book_prompt_history_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('⬇ エクスポートしました');
+}
+
+async function importHistory(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const imported = JSON.parse(e.target.result);
+            if (!Array.isArray(imported)) throw new Error('invalid format');
+            const rows = imported.map(item => ({
+                title: item.title,
+                author: item.author,
+                genre: item.genre,
+                purpose: item.purpose,
+                prompts: item.prompts,
+                notes: item.notes || '',
+                status: item.status || '調査済み'
+            }));
+            const { error } = await supabaseClient.from(TABLE_NAME).insert(rows);
+            if (error) throw error;
+            await renderHistory();
+            showToast('⬆ インポートしました');
+        } catch(err) {
+            showToast('⚠️ ファイルの読み込みに失敗しました');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function showToast(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// 初期読み込み
+renderHistory();
+
+// Realtime同期：他端末での変更を検知したら再読込
+supabaseClient
+    .channel('book_research_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: TABLE_NAME }, () => {
+        renderHistory();
+    })
+    .subscribe();
+</script>
+</body>
+</html>
