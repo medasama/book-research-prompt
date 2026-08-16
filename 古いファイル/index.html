@@ -145,21 +145,13 @@ textarea { resize:vertical; min-height:70px; line-height:1.5; }
         </div>
         <div class="input-section">
             <label for="genre">ジャンル</label>
-            <select id="genre" onchange="onGenreChange()">
+            <select id="genre">
                 <option value="business">ビジネス・自己啓発・実用書</option>
                 <option value="specialized">専門書・学術書</option>
                 <option value="novel">小説・物語</option>
                 <option value="other">その他・分類不明</option>
             </select>
         </div>
-    </div>
-
-    <div class="input-section" id="spoilerOption" style="display:none;">
-        <label style="display:flex; align-items:center; gap:8px; font-weight:400;">
-            <input type="checkbox" id="includeSpoiler" style="width:auto;">
-            結末までのあらすじを知りたい（ネタバレあり）
-        </label>
-        <p class="hint">金閣寺のような名著で、結末を含めた展開を知りたい場合にチェック。プロンプト④が追加されます</p>
     </div>
 
     <button class="btn btn-primary" onclick="generatePrompts()">プロンプトを生成</button>
@@ -179,11 +171,6 @@ textarea { resize:vertical; min-height:70px; line-height:1.5; }
             <span class="prompt-number">プロンプト ③：応用・背景（ジャンル別）</span>
             <button class="copy-btn" onclick="copyPrompt(3)">コピー</button>
             <div class="prompt-text" id="prompt3"></div>
-        </div>
-        <div class="prompt-card" id="promptCard4" style="display:none;">
-            <span class="prompt-number">プロンプト ④：あらすじ・結末（ネタバレあり）</span>
-            <button class="copy-btn" onclick="copyPrompt(4)">コピー</button>
-            <div class="prompt-text" id="prompt4"></div>
         </div>
         <div class="action-row">
             <button class="btn btn-outline" onclick="copyAllPrompts()">📋 まとめてコピー</button>
@@ -267,21 +254,6 @@ const purposeTemplates = {
 
 let currentGenerated = null;
 
-function onGenreChange() {
-    const genre = document.getElementById('genre').value;
-    const spoilerOption = document.getElementById('spoilerOption');
-    if (genre === 'novel') {
-        spoilerOption.style.display = 'block';
-    } else {
-        spoilerOption.style.display = 'none';
-        document.getElementById('includeSpoiler').checked = false;
-    }
-}
-
-function spoilerPrompt(ref) {
-    return `書籍${ref}の全体のあらすじを、結末までネタバレありで詳しく教えて。主要な登場人物・物語の展開・クライマックス・結末を省略せず時系列で説明して。結末の解釈が分かれる場合はその点も明記して。出力形式：見出し＋時系列の箇条書き。最後に「結末」の見出しで締めくくりを明記すること。`;
-}
-
 function generatePrompts() {
     const title = document.getElementById('bookTitle').value.trim();
     const author = document.getElementById('authorName').value.trim();
@@ -306,23 +278,9 @@ function generatePrompts() {
     document.getElementById('prompt1').textContent = prompt1;
     document.getElementById('prompt2').textContent = prompt2;
     document.getElementById('prompt3').textContent = prompt3;
-
-    const includeSpoiler = genre === 'novel' && document.getElementById('includeSpoiler').checked;
-    const promptCard4 = document.getElementById('promptCard4');
-    const prompts = [prompt1, prompt2, prompt3];
-
-    if (includeSpoiler) {
-        const prompt4 = spoilerPrompt(ref);
-        document.getElementById('prompt4').textContent = prompt4;
-        promptCard4.style.display = 'block';
-        prompts.push(prompt4);
-    } else {
-        promptCard4.style.display = 'none';
-    }
-
     document.getElementById('results').classList.add('active');
 
-    currentGenerated = { title, author, genre, purpose, prompts };
+    currentGenerated = { title, author, genre, purpose, prompts: [prompt1, prompt2, prompt3] };
 
     setTimeout(() => {
         document.getElementById('results').scrollIntoView({behavior:'smooth', block:'nearest'});
@@ -342,13 +300,11 @@ function copyPrompt(number) {
 }
 
 function copyAllPrompts() {
-    if (!currentGenerated) return;
-    const labels = ['①', '②', '③', '④'];
-    const text = currentGenerated.prompts
-        .map((p, i) => `${labels[i]} ${p}`)
-        .join('\n\n');
-    copyToClipboard(text);
-    showToast(`📋 ${currentGenerated.prompts.length}つのプロンプトをまとめてコピーしました`);
+    const p1 = document.getElementById('prompt1').textContent;
+    const p2 = document.getElementById('prompt2').textContent;
+    const p3 = document.getElementById('prompt3').textContent;
+    copyToClipboard(`① ${p1}\n\n② ${p2}\n\n③ ${p3}`);
+    showToast('📋 3つのプロンプトをまとめてコピーしました');
 }
 
 function copyToClipboard(text) {
